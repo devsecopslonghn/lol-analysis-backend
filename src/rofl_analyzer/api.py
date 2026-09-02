@@ -4,6 +4,7 @@ import os
 import re
 import tempfile
 import hashlib
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
@@ -16,7 +17,7 @@ from .rofl import MAX_REPLAY_BYTES, PARSER_VERSION, SCHEMA_VERSION, ReplayParseE
 REPORT_ROOT = Path(os.getenv("ROFL_REPORT_ROOT", "/var/lib/rofl-analysis/reports"))
 UPLOAD_ROOT = Path(os.getenv("ROFL_UPLOAD_ROOT", "/var/lib/rofl-analysis/uploads"))
 CACHE_ROOT = Path(os.getenv("ROFL_CACHE_ROOT", "/var/lib/rofl-analysis/cache"))
-app = FastAPI(title="LoL ROFL Analysis API", version="0.3.0")
+app = FastAPI(title="LoL ROFL Analysis API", version="0.3.1")
 allowed_origins = [item.strip() for item in os.getenv("ROFL_ALLOWED_ORIGINS", "http://localhost:5173").split(",") if item.strip()]
 app.add_middleware(CORSMiddleware, allow_origins=allowed_origins, allow_methods=["GET", "POST"], allow_headers=["*"])
 
@@ -37,10 +38,16 @@ def ready() -> dict[str, str]:
 def list_reports() -> dict[str, object]:
     REPORT_ROOT.mkdir(parents=True, exist_ok=True)
     reports = []
-    for path in sorted(REPORT_ROOT.glob("*/summary.json")):
+    paths = sorted(REPORT_ROOT.glob("*/summary.json"), key=lambda path: path.stat().st_mtime, reverse=True)
+    for path in paths:
         try:
             data = _read_json(path)
-            reports.append({"match_id": data.get("match_id", path.parent.name), "game": data.get("game"), "teams": data.get("teams")})
+            reports.append({
+                "match_id": data.get("match_id", path.parent.name),
+                "game": data.get("game"),
+                "teams": data.get("teams"),
+                "created_at": datetime.fromtimestamp(path.stat().st_mtime, timezone.utc).isoformat(),
+            })
         except ValueError:
             continue
     return {"reports": reports}
@@ -58,6 +65,23 @@ def get_player(match_id: str, player_id: str) -> dict[str, object]:
         if player.get("player_id") == player_id:
             return {"match_id": match_id, "player": player, "capabilities": report.get("capabilities")}
     raise HTTPException(status_code=404, detail="player not found")
+
+
+@app.get("/api/v1/reports/{match_id}/timeline")
+def get_timeline(match_id: str) -> dict[str, object]:
+    report = _load_report(match_id)
+    return {"match_id": match_id, "timeline": report.get("timeline"), "capabilities": report.get("capabilities")}
+
+
+@app.get("/api/v1/reports/{match_id}/analysis")
+def get_analysis(match_id: str) -> dict[str, object]:
+    report = _load_report(match_id)
+    return {
+        "match_id": match_id,
+        "analysis": report.get("analysis"),
+        "event_chains": report.get("event_chains"),
+        "capabilities": report.get("capabilities"),
+    }
 
 
 @app.post("/api/v1/reports", status_code=201)

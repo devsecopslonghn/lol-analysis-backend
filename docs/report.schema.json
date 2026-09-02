@@ -43,6 +43,8 @@
         "player_id": {"type": "string"},
         "player": {"type": "string"},
         "champion": {"type": "string"},
+        "champion_key": {"type": ["string", "null"]},
+        "champion_id": {"type": ["integer", "null"]},
         "team": {"type": "integer"},
         "side": {"type": "string"},
         "kda": {"type": "object"},

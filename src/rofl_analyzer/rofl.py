@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import struct
 from pathlib import Path
 from typing import Any
@@ -12,8 +13,47 @@ from .transport import SIGNATURE_SIZE, TransportParseError, summarize_transport,
 ROFL_MAGIC = b"RIOT"
 FORMAT_VERSION = 2
 SCHEMA_VERSION = 2
-PARSER_VERSION = "0.3.0"
+PARSER_VERSION = "0.3.1"
 MAX_REPLAY_BYTES = 128 * 1024 * 1024
+
+
+# The replay metadata exposes the champion display name, not a stable asset
+# identifier. Keep the small catalog local so report generation remains
+# offline and deterministic. Unknown champions remain explicit instead of
+# being guessed from a similarly named asset.
+CHAMPION_CATALOG: dict[str, tuple[int, str, str]] = {
+    "akali": (84, "Akali", "Akali"),
+    "ashe": (22, "Ashe", "Ashe"),
+    "ahri": (103, "Ahri", "Ahri"),
+    "garen": (86, "Garen", "Garen"),
+    "graves": (104, "Graves", "Graves"),
+    "illaoi": (420, "Illaoi", "Illaoi"),
+    "karthus": (30, "Karthus", "Karthus"),
+    "khazix": (121, "Khazix", "Kha'Zix"),
+    "kha'zix": (121, "Khazix", "Kha'Zix"),
+    "kaisa": (145, "Kaisa", "Kai'Sa"),
+    "kai'sa": (145, "Kaisa", "Kai'Sa"),
+    "malphite": (54, "Malphite", "Malphite"),
+    "mel": (902, "Mel", "Mel"),
+    "poppy": (78, "Poppy", "Poppy"),
+    "pyke": (555, "Pyke", "Pyke"),
+    "rengar": (107, "Rengar", "Rengar"),
+    "renekton": (58, "Renekton", "Renekton"),
+    "sejuani": (77, "Sejuani", "Sejuani"),
+    "sivir": (15, "Sivir", "Sivir"),
+    "smolder": (147, "Smolder", "Smolder"),
+    "syndra": (134, "Syndra", "Syndra"),
+    "talon": (91, "Talon", "Talon"),
+    "thresh": (412, "Thresh", "Thresh"),
+    "varus": (110, "Varus", "Varus"),
+    "viktor": (112, "Viktor", "Viktor"),
+    "xerath": (101, "Xerath", "Xerath"),
+    "xin zhao": (5, "XinZhao", "Xin Zhao"),
+    "yasuo": (157, "Yasuo", "Yasuo"),
+    "yone": (777, "Yone", "Yone"),
+    "zac": (154, "Zac", "Zac"),
+    "zyra": (143, "Zyra", "Zyra"),
+}
 
 
 class ReplayParseError(ValueError):
@@ -45,6 +85,10 @@ def parse_replay(path: str | Path) -> dict[str, Any]:
         "transport_layer": {"status": "verified", "reason": "ROFL chunks and network block framing parsed"},
         "participants": {"status": "verified", "reason": "statsJson participant records parsed"},
         "summary_metrics": {"status": "derived", "reason": "calculated from participant metadata"},
+        "jungle_economy": {
+            "status": "derived",
+            "reason": "own/enemy neutral CS is available from verified participant metadata; camp routes are not decoded",
+        },
         "event_timeline": {
             "status": "unknown",
             "reason": "patch-specific event decoder is not bundled for this replay",
@@ -220,11 +264,15 @@ def _participant_summary(item: dict[str, Any], index: int) -> dict[str, Any]:
     deaths = _int(item, "NUM_DEATHS")
     assists = _int(item, "ASSISTS")
     team = _int(item, "TEAM")
+    champion_raw = str(item.get("SKIN") or "Unknown").strip()
+    champion_id, champion_key, champion_name = _champion_identity(champion_raw)
     return {
         "player_id": str(item.get("PUUID") or item.get("ID") or index),
         "player": item.get("RIOT_ID_GAME_NAME") or item.get("NAME") or f"Player {index + 1}",
         "tag": item.get("RIOT_ID_TAG_LINE") or None,
-        "champion": item.get("SKIN") or "Unknown",
+        "champion": champion_name,
+        "champion_key": champion_key,
+        "champion_id": champion_id,
         "team": team,
         "side": "blue" if team == 100 else "red" if team == 200 else "unknown",
         "role": item.get("INDIVIDUAL_POSITION") or "UNKNOWN",
@@ -357,18 +405,30 @@ def _team_summaries(players: list[dict[str, Any]], duration_seconds: float | Non
 def _report_facts(players: list[dict[str, Any]], teams: list[dict[str, Any]], duration: float | None) -> list[dict[str, Any]]:
     facts: list[dict[str, Any]] = []
     if duration is not None:
-        facts.append({"type": "game_duration", "value_seconds": duration, "confidence": "verified"})
+        facts.append({"type": "game_duration", "title": "Match duration", "body": f"The replay lasted {duration:.3f} seconds.", "value_seconds": duration, "confidence": "verified", "evidence": ["game.gameLength"]})
     for team in teams:
-        facts.append({"type": "team_score", "side": team["side"], "kills": team["kills"], "deaths": team["deaths"], "confidence": "derived"})
-        facts.append({"type": "team_objective_control", "side": team["side"], **team["objective_control"], "confidence": "derived"})
+        facts.append({"type": "team_score", "title": f"{team['side'].title()} team score", "body": f"{team['side'].title()} recorded {team['kills']} kills and {team['deaths']} deaths.", "side": team["side"], "kills": team["kills"], "deaths": team["deaths"], "confidence": "derived", "evidence": [f"teams[{team['side']}].kills", f"teams[{team['side']}].deaths"]})
+        facts.append({"type": "team_objective_control", "title": f"{team['side'].title()} objective totals", "body": f"Dragons {team['objective_control']['dragons']}, Heralds {team['objective_control']['heralds']}, Barons {team['objective_control']['barons']}.", "side": team["side"], **team["objective_control"], "confidence": "derived", "evidence": [f"teams[{team['side']}].objective_control"]})
     for player in players:
         if player["derived"]["time_disconnected_seconds"]:
-            facts.append({"type": "disconnect", "player_id": player["player_id"], "seconds": player["derived"]["time_disconnected_seconds"], "confidence": "verified"})
+            facts.append({"type": "disconnect", "title": f"{player['player']} disconnect signal", "body": f"Verified disconnected time: {player['derived']['time_disconnected_seconds']} seconds.", "player_id": player["player_id"], "seconds": player["derived"]["time_disconnected_seconds"], "confidence": "verified", "evidence": [f"players[{player['player_id']}].derived.time_disconnected_seconds"]})
         if player["jungle"]["enemy_jungle_cs"]:
-            facts.append({"type": "enemy_jungle_resource", "player_id": player["player_id"], "cs": player["jungle"]["enemy_jungle_cs"], "confidence": "verified"})
+            facts.append({"type": "enemy_jungle_resource", "title": f"{player['player']} enemy-jungle CS", "body": f"Verified enemy-jungle neutral CS: {player['jungle']['enemy_jungle_cs']}.", "player_id": player["player_id"], "cs": player["jungle"]["enemy_jungle_cs"], "confidence": "verified", "evidence": [f"players[{player['player_id']}].jungle.enemy_jungle_cs"]})
         if player["derived"]["takedowns_before_15m"]:
-            facts.append({"type": "early_pressure", "player_id": player["player_id"], "takedowns_before_15m": player["derived"]["takedowns_before_15m"], "confidence": "verified"})
+            facts.append({"type": "early_pressure", "title": f"{player['player']} early pressure", "body": f"Verified takedowns before 15:00: {player['derived']['takedowns_before_15m']}.", "player_id": player["player_id"], "takedowns_before_15m": player["derived"]["takedowns_before_15m"], "confidence": "verified", "evidence": [f"players[{player['player_id']}].derived.takedowns_before_15m"]})
     return facts
+
+
+def _champion_identity(raw_name: str) -> tuple[int | None, str | None, str]:
+    normalized = raw_name.strip().lower()
+    identity = CHAMPION_CATALOG.get(normalized)
+    if identity is None:
+        compact = re.sub(r"[^a-z0-9]", "", normalized)
+        identity = next((value for key, value in CHAMPION_CATALOG.items() if re.sub(r"[^a-z0-9]", "", key) == compact), None)
+    if identity is None:
+        return None, None, raw_name or "Unknown"
+    champion_id, champion_key, champion_name = identity
+    return champion_id, champion_key, champion_name
 
 
 def _impact_signals(player: dict[str, Any]) -> list[dict[str, Any]]:

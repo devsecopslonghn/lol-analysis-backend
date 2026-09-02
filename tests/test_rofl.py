@@ -1,7 +1,7 @@
 import json
 import struct
 
-from rofl_analyzer.rofl import parse_replay, write_report
+from rofl_analyzer.rofl import _champion_identity, parse_replay, write_report
 
 
 def _replay(tmp_path):
@@ -60,6 +60,8 @@ def test_parse_replay_aggregates_players(tmp_path):
     assert report["teams"][0]["kills"] == 10
     assert report["teams"][1]["deaths"] == 10
     assert report["players"][0]["champion"] == "Rengar"
+    assert report["players"][0]["champion_key"] == "Rengar"
+    assert report["players"][0]["champion_id"] == 107
     assert report["players"][0]["derived"]["kill_participation"] == 1.0
     assert report["movement"]["status"] == "transport_only"
     assert report["transport"]["block_count"] == 1
@@ -86,3 +88,10 @@ def test_report_is_explicit_about_unverified_semantics(tmp_path):
     assert report["analysis"]["method"] == "metadata_first"
     assert report["event_chains"]["shape"] == ["precondition", "action", "outcome", "conversion", "impact"]
     assert report["capabilities"]["movement_semantics"]["status"] == "unknown"
+    assert report["capabilities"]["jungle_economy"]["status"] == "derived"
+    assert report["analysis"]["facts"][0]["title"] == "Match duration"
+
+
+def test_champion_identity_normalizes_apostrophes_and_display_names(tmp_path):
+    assert _champion_identity("Kha'Zix") == (121, "Khazix", "Kha'Zix")
+    assert _champion_identity("Khazix") == (121, "Khazix", "Kha'Zix")

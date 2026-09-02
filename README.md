@@ -3,7 +3,9 @@
 Read-only ROFL extraction and report API for a future LoL coaching dashboard.
 The current release safely parses ROFL v2 metadata plus chunk/network transport
 and creates generic player reports. Champion, role and player information are
-fields inside `players.json`; files are not named after champions.
+fields inside `players.json`; files are not named after champions. Reports now
+also include canonical `champion_key` and `champion_id` fields when the local
+catalog recognizes the champion.
 
 ## Local usage
 
@@ -39,6 +41,8 @@ reference only; it is explicitly marked as not applicable to this 16.17 client.
 - `GET /api/v1/reports`
 - `GET /api/v1/reports/{match_id}`
 - `GET /api/v1/reports/{match_id}/players/{player_id}`
+- `GET /api/v1/reports/{match_id}/timeline`
+- `GET /api/v1/reports/{match_id}/analysis`
 - `POST /api/v1/reports` with a multipart `file` field
 
 ## Safety boundary
