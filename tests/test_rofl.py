@@ -1,7 +1,7 @@
 import json
 import struct
 
-from rofl_analyzer.rofl import _champion_identity, parse_replay, write_report
+from rofl_analyzer.rofl import _champion_identity, _upgrade_report, parse_replay, write_report
 
 
 def _replay(tmp_path):
@@ -95,3 +95,17 @@ def test_report_is_explicit_about_unverified_semantics(tmp_path):
 def test_champion_identity_normalizes_apostrophes_and_display_names(tmp_path):
     assert _champion_identity("Kha'Zix") == (121, "Khazix", "Kha'Zix")
     assert _champion_identity("Khazix") == (121, "Khazix", "Kha'Zix")
+
+
+def test_upgrade_report_backfills_fields_for_persisted_reports(tmp_path):
+    report = parse_replay(_replay(tmp_path))
+    report["players"][0].pop("champion_id")
+    report["players"][0].pop("champion_key")
+    report["capabilities"].pop("jungle_economy")
+
+    upgraded = _upgrade_report(report)
+
+    assert upgraded["players"][0]["champion_id"] == 107
+    assert upgraded["players"][0]["champion_key"] == "Rengar"
+    assert upgraded["capabilities"]["jungle_economy"]["status"] == "derived"
+    assert upgraded["analysis"]["facts"][0]["title"] == "Match duration"

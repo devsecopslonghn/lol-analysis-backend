@@ -431,6 +431,37 @@ def _champion_identity(raw_name: str) -> tuple[int | None, str | None, str]:
     return champion_id, champion_key, champion_name
 
 
+def _upgrade_report(report: dict[str, Any]) -> dict[str, Any]:
+    """Add non-destructive fields introduced after reports were persisted."""
+    players = report.get("players")
+    if isinstance(players, list):
+        for player in players:
+            if not isinstance(player, dict):
+                continue
+            champion = str(player.get("champion") or "Unknown")
+            champion_id, champion_key, champion_name = _champion_identity(champion)
+            player.setdefault("champion_id", champion_id)
+            player.setdefault("champion_key", champion_key)
+            if champion_key and player.get("champion") == champion:
+                player["champion"] = champion_name
+
+    capabilities = report.setdefault("capabilities", {})
+    if isinstance(capabilities, dict):
+        capabilities.setdefault("jungle_economy", {
+            "status": "derived",
+            "reason": "own/enemy neutral CS is available from verified participant metadata; camp routes are not decoded",
+        })
+
+    teams = report.get("teams")
+    game = report.get("game")
+    if isinstance(players, list) and isinstance(teams, list) and isinstance(game, dict):
+        analysis = report.setdefault("analysis", {})
+        if isinstance(analysis, dict):
+            duration = game.get("duration_seconds")
+            analysis["facts"] = _report_facts(players, teams, duration if isinstance(duration, (int, float)) else None)
+    return report
+
+
 def _impact_signals(player: dict[str, Any]) -> list[dict[str, Any]]:
     return [
         {"name": "early_pressure", "value": player["derived"]["takedowns_before_15m"], "unit": "takedowns_before_15m", "confidence": "verified"},

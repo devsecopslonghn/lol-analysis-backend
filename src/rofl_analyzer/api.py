@@ -11,7 +11,7 @@ from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
-from .rofl import MAX_REPLAY_BYTES, PARSER_VERSION, SCHEMA_VERSION, ReplayParseError, parse_replay, write_report_data
+from .rofl import MAX_REPLAY_BYTES, PARSER_VERSION, SCHEMA_VERSION, ReplayParseError, _upgrade_report, parse_replay, write_report_data
 
 
 REPORT_ROOT = Path(os.getenv("ROFL_REPORT_ROOT", "/var/lib/rofl-analysis/reports"))
@@ -41,7 +41,7 @@ def list_reports() -> dict[str, object]:
     paths = sorted(REPORT_ROOT.glob("*/summary.json"), key=lambda path: path.stat().st_mtime, reverse=True)
     for path in paths:
         try:
-            data = _read_json(path)
+            data = _upgrade_report(_read_json(path))
             reports.append({
                 "match_id": data.get("match_id", path.parent.name),
                 "game": data.get("game"),
@@ -126,7 +126,7 @@ def _load_report(match_id: str) -> dict[str, object]:
     if not path.is_file():
         raise HTTPException(status_code=404, detail="report not found")
     try:
-        return _read_json(path)
+        return _upgrade_report(_read_json(path))
     except ValueError as exc:
         raise HTTPException(status_code=500, detail="report is invalid") from exc
 
