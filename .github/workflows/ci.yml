@@ -16,7 +16,7 @@ jobs:
       python_version: "3.11"
       install_command: python -m pip install -e '.[dev]'
       test_command: python -m pytest -q
-      image_name: ghcr.io/devsecopslonghn/lol-analysis-backend
+      image_name: ${{ vars.GHCR_REGISTRY }}/devsecopslonghn/lol-analysis-backend
       publish_image: true
-      registry: ghcr.io
+      registry: ${{ vars.GHCR_REGISTRY }}
     secrets: inherit

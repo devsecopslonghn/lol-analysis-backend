@@ -21,15 +21,15 @@ jobs:
       - name: Checkout Helm chart
         uses: actions/checkout@v4
         with:
-          repository: devsecopslonghn/lol-analysis-helm-chart
-          ref: master
+          repository: ${{ vars.GITOPS_LOL_ANALYSIS_REPOSITORY }}
+          ref: ${{ vars.GITOPS_BRANCH }}
           token: ${{ secrets.GITOPS_TOKEN }}
           path: chart
 
       - name: Update backend image reference
         working-directory: chart
         env:
-          IMAGE_REPOSITORY: ghcr.io/devsecopslonghn/lol-analysis-backend
+          IMAGE_REPOSITORY: ${{ vars.GHCR_REGISTRY }}/devsecopslonghn/lol-analysis-backend
           IMAGE_TAG: ${{ github.event.workflow_run.head_sha }}
         run: |
           python3 - <<'PY'

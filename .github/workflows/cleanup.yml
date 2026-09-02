@@ -20,6 +20,6 @@ jobs:
     uses: devsecopslonghn/.github/.github/workflows/container-cleanup.yml@master
     with:
       package_name: lol-analysis-backend
-      chart_values_url: https://raw.githubusercontent.com/devsecopslonghn/lol-analysis-helm-chart/master/values.yaml
+      chart_values_url: https://raw.githubusercontent.com/${{ vars.GITOPS_LOL_ANALYSIS_REPOSITORY }}/${{ vars.GITOPS_BRANCH }}/values.yaml
       execute: ${{ github.event_name == 'schedule' || inputs.execute }}
     secrets: inherit
