@@ -16,7 +16,7 @@ from .rofl import MAX_REPLAY_BYTES, PARSER_VERSION, SCHEMA_VERSION, ReplayParseE
 REPORT_ROOT = Path(os.getenv("ROFL_REPORT_ROOT", "/var/lib/rofl-analysis/reports"))
 UPLOAD_ROOT = Path(os.getenv("ROFL_UPLOAD_ROOT", "/var/lib/rofl-analysis/uploads"))
 CACHE_ROOT = Path(os.getenv("ROFL_CACHE_ROOT", "/var/lib/rofl-analysis/cache"))
-app = FastAPI(title="LoL ROFL Analysis API", version="0.2.0")
+app = FastAPI(title="LoL ROFL Analysis API", version="0.3.0")
 allowed_origins = [item.strip() for item in os.getenv("ROFL_ALLOWED_ORIGINS", "http://localhost:5173").split(",") if item.strip()]
 app.add_middleware(CORSMiddleware, allow_origins=allowed_origins, allow_methods=["GET", "POST"], allow_headers=["*"])
 
@@ -83,9 +83,9 @@ async def analyze_upload(file: UploadFile = File(...)) -> JSONResponse:
         source_sha = _sha256(temp_path)
         cached = _load_cached_report(source_sha)
         report = cached or parse_replay(temp_path)
-        output = write_report_data(report, REPORT_ROOT, match_id=match_id)
+        output = write_report_data(report, REPORT_ROOT, match_id=match_id, transport_source=temp_path)
         if cached is None:
-            write_report_data(report, CACHE_ROOT, match_id=_cache_key(source_sha))
+            write_report_data(report, CACHE_ROOT, match_id=_cache_key(source_sha), transport_source=temp_path)
         return JSONResponse(status_code=201, content={"match_id": match_id, "report_path": str(output), "cache_hit": cached is not None})
     except ReplayParseError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc

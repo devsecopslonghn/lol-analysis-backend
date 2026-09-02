@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import math
+import json
 import struct
 from collections import Counter
+from pathlib import Path
 from typing import Any, Iterator
 
 
@@ -47,7 +49,7 @@ def summarize_transport(raw: bytes, *, chunks_start: int, chunks_end: int) -> di
             raise TransportParseError(f"chunk {chunk_id} size mismatch")
 
         stream_chunks[stream_id] += 1
-        for timestamp, packet_id, payload_length in _iter_blocks(body):
+        for timestamp, packet_id, param, payload_length, _block_offset in _iter_blocks(body):
             block_count += 1
             opcode_counts[packet_id] += 1
             payload_bytes[packet_id] += payload_length
@@ -81,9 +83,50 @@ def summarize_transport(raw: bytes, *, chunks_start: int, chunks_end: int) -> di
         "opcode_observations": _opcode_observations(
             opcode_counts, payload_bytes, first_opcode_timestamp, last_opcode_timestamp, opcode_streams
         ),
+        "artifacts": _artifact_specs(opcode_counts),
+        "legacy_profile_reference": {
+            "status": "legacy_candidate_only",
+            "project": "RoflLens",
+            "profile_client_version": "16.14.794.5912",
+            "candidate_opcode": "0x022c",
+            "applies_to_client_version": False,
+            "reason": "The bundled legacy profile is not an exact match for this 16.17 replay; it cannot produce verified coordinates or ganks.",
+        },
         "semantic_status": "transport_only",
         "semantic_reason": "packet payload semantics require an exact patch profile and client decoder",
     }
+
+
+def write_transport_artifacts(
+    replay_path: str | Path,
+    output_dir: str | Path,
+    *,
+    chunks_start: int,
+    chunks_end: int,
+) -> list[dict[str, Any]]:
+    """Write bounded, timestamped transport observations for future semantic adapters."""
+    raw = Path(replay_path).read_bytes()
+    target = Path(output_dir)
+    target.mkdir(parents=True, exist_ok=True)
+    specs = (
+        ("movement_transport.jsonl", (0x022C,)),
+        ("opcode_0226_transport.jsonl", (0x0226,)),
+    )
+    written: list[dict[str, Any]] = []
+    for filename, opcodes in specs:
+        count = 0
+        with (target / filename).open("w", encoding="utf-8") as handle:
+            for record in _iter_transport_records(raw, chunks_start=chunks_start, chunks_end=chunks_end, opcodes=set(opcodes)):
+                handle.write(json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\n")
+                count += 1
+        written.append({
+            "file": filename,
+            "opcodes": [f"0x{opcode:04x}" for opcode in opcodes],
+            "count": count,
+            "status": "candidate",
+            "semantic_status": "transport_only",
+        })
+    return written
 
 
 def _decompress(body: bytes, expected_size: int) -> bytes:
@@ -97,7 +140,7 @@ def _decompress(body: bytes, expected_size: int) -> bytes:
         raise TransportParseError(f"zstandard chunk decompression failed: {exc}") from exc
 
 
-def _iter_blocks(body: bytes) -> Iterator[tuple[float, int, int]]:
+def _iter_blocks(body: bytes) -> Iterator[tuple[float, int, int, int, int]]:
     cursor = 0
     timestamp = 0.0
     packet_id = 0
@@ -139,7 +182,50 @@ def _iter_blocks(body: bytes) -> Iterator[tuple[float, int, int]]:
             cursor += 4
         _need(body, cursor, payload_length, marker_offset)
         cursor += payload_length
-        yield timestamp, packet_id, payload_length
+        yield timestamp, packet_id, param, payload_length, marker_offset
+
+
+def _iter_transport_records(
+    raw: bytes,
+    *,
+    chunks_start: int,
+    chunks_end: int,
+    opcodes: set[int],
+) -> Iterator[dict[str, Any]]:
+    if chunks_start < 0 or chunks_end < chunks_start or chunks_end > len(raw):
+        raise TransportParseError("invalid chunk region")
+    cursor = chunks_start
+    while cursor < chunks_end:
+        if cursor + CHUNK_HEADER.size > chunks_end:
+            raise TransportParseError("chunk header is truncated")
+        chunk_id, _slot, stream_raw, raw_size, compressed_size = CHUNK_HEADER.unpack_from(raw, cursor)
+        stream_id = (stream_raw >> 24) & 0xFF
+        body_start = cursor + CHUNK_HEADER.size
+        stored_size = compressed_size or raw_size
+        body_end = body_start + stored_size
+        if body_end > chunks_end:
+            raise TransportParseError(f"chunk {chunk_id} body exceeds chunk region")
+        body = raw[body_start:body_end]
+        if compressed_size:
+            body = _decompress(body, raw_size)
+        if len(body) != raw_size:
+            raise TransportParseError(f"chunk {chunk_id} size mismatch")
+        for timestamp, packet_id, param, payload_length, block_offset in _iter_blocks(body):
+            if packet_id in opcodes:
+                yield {
+                    "timestamp_seconds": round(timestamp, 3),
+                    "chunk_id": chunk_id,
+                    "stream": _stream_name(stream_id),
+                    "stream_id": stream_id,
+                    "block_offset": block_offset,
+                    "opcode": packet_id,
+                    "hex": f"0x{packet_id:04x}",
+                    "param": param,
+                    "payload_length": payload_length,
+                    "status": "candidate",
+                    "semantic_status": "transport_only",
+                }
+        cursor = body_end
 
 
 def _need(body: bytes, cursor: int, size: int, marker_offset: int) -> None:
@@ -180,4 +266,21 @@ def _opcode_observations(
         }
         for opcode in observed_ids
         if counts[opcode]
+    ]
+
+
+def _artifact_specs(counts: Counter[int]) -> list[dict[str, Any]]:
+    specs = (
+        ("movement_transport.jsonl", (0x022C,)),
+        ("opcode_0226_transport.jsonl", (0x0226,)),
+    )
+    return [
+        {
+            "file": filename,
+            "opcodes": [f"0x{opcode:04x}" for opcode in opcodes],
+            "count": sum(counts[opcode] for opcode in opcodes),
+            "status": "candidate",
+            "semantic_status": "transport_only",
+        }
+        for filename, opcodes in specs
     ]

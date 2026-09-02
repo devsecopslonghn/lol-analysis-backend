@@ -15,7 +15,7 @@ def main() -> int:
     args = parser.parse_args()
     try:
         report = parse_replay(args.replay)
-        output_dir = write_report_data(report, args.output)
+        output_dir = write_report_data(report, args.output, transport_source=args.replay)
     except ReplayParseError as exc:
         parser.error(str(exc))
     if args.json:

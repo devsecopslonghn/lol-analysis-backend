@@ -18,6 +18,10 @@ The output directory contains generic `players.json`, `player_impacts.json`,
 `analysis_context.json`, `event_chains.json`, JSONL extension points and
 `transport.json` with chunk/block/opcode evidence, plus capability-aware
 placeholder files for future event and movement adapters.
+`movement_transport.jsonl` contains timestamped transport records for the
+`0x022c` candidate; it has no coordinates, entity IDs or decoded gank meaning.
+`opcode_0226_transport.jsonl` is retained as a second profile-bound candidate
+for later reconciliation.
 The API cache is keyed by replay SHA256, so re-uploading the same replay does
 not require a second semantic parse.
 The contract is documented in `docs/report.schema.json`.
@@ -25,7 +29,8 @@ The contract is documented in `docs/report.schema.json`.
 For `VN2-1568084329.rofl` (patch `16.17.810.4348`), transport parsing verifies
 630 chunks, 1,790,597 blocks and 264 opcodes. The report records `0x022c` as a
 candidate movement signal, but does not turn it into coordinates without a
-matching client decoder.
+matching client decoder. The report records RoflLens' 16.14 profile as a legacy
+reference only; it is explicitly marked as not applicable to this 16.17 client.
 
 ## API
 

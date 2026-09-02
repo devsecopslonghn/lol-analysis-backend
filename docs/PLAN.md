@@ -9,17 +9,21 @@
 5. Tests with synthetic metadata and the supplied replay as a smoke check.
 6. SHA256 cache, generic player impact artifact and event-chain extension point.
 7. Transport chunk/block parser with per-opcode counts and observed time windows.
+8. Timestamped `movement_transport.jsonl` and opcode candidate artifacts with
+   legacy-profile provenance; no coordinates are inferred.
 
 ## Phase 2 — verified event adapters (requires a verified patch profile)
 
 1. Add exact patch/profile adapters for death, objective, ward and spell events.
+   The adapter must verify client version/hash before decoding.
 2. Emit compact `events.jsonl` and objective windows.
 3. Add golden fixtures where totals reconcile with metadata.
 4. Keep unsupported patch behavior as a clean fallback.
 
 ## Phase 3 — movement and causal coaching
 
-1. Decode player entities only with a verified profile.
+1. Decode player entities only with a verified profile; legacy profiles are
+   comparison fixtures, never a silent fallback for a different patch.
 2. Reconstruct movement segments and semantic zones.
 3. Detect candidate clears, invades, ganks and counter-ganks.
 4. Build event chains with evidence references and confidence.

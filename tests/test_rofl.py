@@ -74,6 +74,8 @@ def test_write_report_uses_generic_player_artifact_names(tmp_path):
     assert (target / "player_impacts.json").is_file()
     assert (target / "event_chains.json").is_file()
     assert (target / "transport.json").is_file()
+    assert (target / "movement_transport.jsonl").is_file()
+    assert len((target / "movement_transport.jsonl").read_text(encoding="utf-8").splitlines()) == 1
     assert (target / "events.jsonl").is_file()
     assert not list(target.glob("*rengar*"))
 

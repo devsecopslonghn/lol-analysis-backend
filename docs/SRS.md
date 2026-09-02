@@ -26,6 +26,8 @@ coordinates, events or patch-specific semantics.
   `precondition → action → outcome → conversion → impact`.
 - Parse and retain transport-layer chunk/block timestamps and opcode evidence
   without mislabeling patch-bound packet semantics.
+- Emit timestamped transport candidate JSONL artifacts for future decoders,
+  with opcode provenance and `transport_only` confidence.
 - Cache generated reports by replay SHA256 and parser schema version.
 
 ### Subsequent releases
@@ -47,6 +49,9 @@ Every claim must be classified as one of:
 
 Movement, camp ownership, exact gank location and exact death/objective
 timestamps are `unknown` unless a matching semantic profile is verified.
+Legacy profiles may be recorded as references or hypotheses, but must not be
+used to emit coordinates, player routes or gank events for another client
+version. Transport candidate records contain framing evidence only.
 Aggregate impact dimensions are `derived`; they are signals for the AI or
 dashboard, not an automatic quality score.
 
@@ -64,6 +69,7 @@ dashboard, not an automatic quality score.
 | FR-08 | A future movement adapter must never run when patch/profile/client hashes do not match. |
 | FR-09 | Event chains must represent `precondition → action → outcome → conversion → impact`. |
 | FR-10 | The frontend must consume backend JSON and must not recreate analysis rules. |
+| FR-11 | Timestamped movement/opcode candidate artifacts must remain explicitly transport-only until an exact decoder is verified. |
 
 ## 5. Non-functional requirements
 

@@ -6,13 +6,13 @@ import struct
 from pathlib import Path
 from typing import Any
 
-from .transport import SIGNATURE_SIZE, TransportParseError, summarize_transport
+from .transport import SIGNATURE_SIZE, TransportParseError, summarize_transport, write_transport_artifacts
 
 
 ROFL_MAGIC = b"RIOT"
 FORMAT_VERSION = 2
 SCHEMA_VERSION = 2
-PARSER_VERSION = "0.2.0"
+PARSER_VERSION = "0.3.0"
 MAX_REPLAY_BYTES = 128 * 1024 * 1024
 
 
@@ -89,6 +89,8 @@ def parse_replay(path: str | Path) -> dict[str, Any]:
             "status": "transport_only",
             "reason": capabilities["movement_semantics"]["reason"],
             "transport_observations": [item for item in transport["opcode_observations"] if item["opcode"] == 0x022C],
+            "transport_artifacts": transport["artifacts"],
+            "legacy_profile_reference": transport["legacy_profile_reference"],
         },
         "event_chains": {
             "items": [],
@@ -110,10 +112,16 @@ def parse_replay(path: str | Path) -> dict[str, Any]:
 
 
 def write_report(path: str | Path, output_dir: str | Path, *, match_id: str | None = None) -> Path:
-    return write_report_data(parse_replay(path), output_dir, match_id=match_id)
+    return write_report_data(parse_replay(path), output_dir, match_id=match_id, transport_source=path)
 
 
-def write_report_data(report: dict[str, Any], output_dir: str | Path, *, match_id: str | None = None) -> Path:
+def write_report_data(
+    report: dict[str, Any],
+    output_dir: str | Path,
+    *,
+    match_id: str | None = None,
+    transport_source: str | Path | None = None,
+) -> Path:
     report = dict(report)
     if match_id:
         report["match_id"] = match_id
@@ -130,6 +138,23 @@ def write_report_data(report: dict[str, Any], output_dir: str | Path, *, match_i
     _write_json(target / "player_impacts.json", {"match_id": report["match_id"], "players": report["players"]})
     (target / "events.jsonl").write_text("", encoding="utf-8")
     (target / "movement_segments.jsonl").write_text("", encoding="utf-8")
+    if transport_source:
+        try:
+            raw = Path(transport_source).read_bytes()
+            header = _parse_header(raw)
+            metadata_length = struct.unpack_from("<I", raw, len(raw) - 4)[0]
+            chunks_end = len(raw) - 4 - metadata_length - SIGNATURE_SIZE
+            write_transport_artifacts(
+                transport_source,
+                target,
+                chunks_start=header["header_size"],
+                chunks_end=chunks_end,
+            )
+        except (OSError, struct.error, TransportParseError, ReplayParseError) as exc:
+            raise ReplayParseError(f"failed to write transport artifacts: {exc}") from exc
+    else:
+        (target / "movement_transport.jsonl").write_text("", encoding="utf-8")
+        (target / "opcode_0226_transport.jsonl").write_text("", encoding="utf-8")
     _write_json(target / "analysis_context.json", _analysis_context(report))
     _write_json(target / "run.json", {"parser": report["parser"], "source": report["source"], "capabilities": report["capabilities"]})
     return target
