@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lol-analysis.local/schema/report-v2.json",
+  "title": "LoL ROFL analysis report",
+  "type": "object",
+  "required": ["schema_version", "match_id", "source", "parser", "game", "capabilities", "teams", "players", "timeline", "objectives", "movement", "event_chains", "analysis"],
+  "properties": {
+    "schema_version": {"const": 2},
+    "match_id": {"type": "string", "minLength": 1},
+    "source": {
+      "type": "object",
+      "required": ["file_name", "sha256", "cache_key"],
+      "properties": {
+        "file_name": {"type": "string"},
+        "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "cache_key": {"type": "string"}
+      },
+      "additionalProperties": true
+    },
+    "parser": {"type": "object", "required": ["name", "version"]},
+    "game": {"type": "object", "required": ["patch", "duration_seconds", "format_version"]},
+    "capabilities": {"type": "object", "additionalProperties": {"type": "object", "required": ["status", "reason"]}},
+    "teams": {"type": "array", "items": {"type": "object"}},
+    "players": {"type": "array", "items": {"$ref": "#/$defs/player"}},
+    "timeline": {"$ref": "#/$defs/status_artifact"},
+    "objectives": {"$ref": "#/$defs/status_artifact"},
+    "movement": {"$ref": "#/$defs/status_artifact"},
+    "event_chains": {"type": "object", "required": ["items", "status", "reason", "shape"]},
+    "analysis": {"type": "object", "required": ["facts", "inferences", "unknowns", "method"]}
+  },
+  "$defs": {
+    "status_artifact": {
+      "type": "object",
+      "required": ["status", "reason"],
+      "properties": {"status": {"type": "string"}, "reason": {"type": "string"}, "events": {"type": "array"}, "segments": {"type": "array"}},
+      "additionalProperties": true
+    },
+    "player": {
+      "type": "object",
+      "required": ["player_id", "player", "champion", "team", "side", "kda", "stats", "derived", "impact"],
+      "properties": {
+        "player_id": {"type": "string"},
+        "player": {"type": "string"},
+        "champion": {"type": "string"},
+        "team": {"type": "integer"},
+        "side": {"type": "string"},
+        "kda": {"type": "object"},
+        "stats": {"type": "object"},
+        "derived": {"type": "object"},
+        "impact": {"type": "object", "required": ["dimensions", "evidence"]}
+      },
+      "additionalProperties": true
+    }
+  }
+}

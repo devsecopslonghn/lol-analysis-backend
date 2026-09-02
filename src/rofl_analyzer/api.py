@@ -1,0 +1,141 @@
+from __future__ import annotations
+
+import os
+import re
+import tempfile
+import hashlib
+from pathlib import Path
+
+from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
+
+from .rofl import MAX_REPLAY_BYTES, PARSER_VERSION, SCHEMA_VERSION, ReplayParseError, parse_replay, write_report_data
+
+
+REPORT_ROOT = Path(os.getenv("ROFL_REPORT_ROOT", "/var/lib/rofl-analysis/reports"))
+UPLOAD_ROOT = Path(os.getenv("ROFL_UPLOAD_ROOT", "/var/lib/rofl-analysis/uploads"))
+CACHE_ROOT = Path(os.getenv("ROFL_CACHE_ROOT", "/var/lib/rofl-analysis/cache"))
+app = FastAPI(title="LoL ROFL Analysis API", version="0.2.0")
+allowed_origins = [item.strip() for item in os.getenv("ROFL_ALLOWED_ORIGINS", "http://localhost:5173").split(",") if item.strip()]
+app.add_middleware(CORSMiddleware, allow_origins=allowed_origins, allow_methods=["GET", "POST"], allow_headers=["*"])
+
+
+@app.get("/health/live")
+def live() -> dict[str, str]:
+    return {"status": "ok"}
+
+
+@app.get("/health/ready")
+def ready() -> dict[str, str]:
+    REPORT_ROOT.mkdir(parents=True, exist_ok=True)
+    CACHE_ROOT.mkdir(parents=True, exist_ok=True)
+    return {"status": "ok"}
+
+
+@app.get("/api/v1/reports")
+def list_reports() -> dict[str, object]:
+    REPORT_ROOT.mkdir(parents=True, exist_ok=True)
+    reports = []
+    for path in sorted(REPORT_ROOT.glob("*/summary.json")):
+        try:
+            data = _read_json(path)
+            reports.append({"match_id": data.get("match_id", path.parent.name), "game": data.get("game"), "teams": data.get("teams")})
+        except ValueError:
+            continue
+    return {"reports": reports}
+
+
+@app.get("/api/v1/reports/{match_id}")
+def get_report(match_id: str) -> dict[str, object]:
+    return _load_report(match_id)
+
+
+@app.get("/api/v1/reports/{match_id}/players/{player_id}")
+def get_player(match_id: str, player_id: str) -> dict[str, object]:
+    report = _load_report(match_id)
+    for player in report.get("players", []):
+        if player.get("player_id") == player_id:
+            return {"match_id": match_id, "player": player, "capabilities": report.get("capabilities")}
+    raise HTTPException(status_code=404, detail="player not found")
+
+
+@app.post("/api/v1/reports", status_code=201)
+async def analyze_upload(file: UploadFile = File(...)) -> JSONResponse:
+    if not file.filename or not file.filename.lower().endswith(".rofl"):
+        raise HTTPException(status_code=400, detail="only .rofl files are accepted")
+    UPLOAD_ROOT.mkdir(parents=True, exist_ok=True)
+    REPORT_ROOT.mkdir(parents=True, exist_ok=True)
+    CACHE_ROOT.mkdir(parents=True, exist_ok=True)
+    temp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(dir=UPLOAD_ROOT, suffix=".rofl", delete=False) as handle:
+            temp_path = Path(handle.name)
+            total = 0
+            while chunk := await file.read(1024 * 1024):
+                total += len(chunk)
+                if total > MAX_REPLAY_BYTES:
+                    raise HTTPException(status_code=413, detail="replay file exceeds the 128 MiB safety limit")
+                handle.write(chunk)
+        match_id = Path(file.filename).stem
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", match_id):
+            raise HTTPException(status_code=400, detail="filename must contain only safe match-id characters")
+        source_sha = _sha256(temp_path)
+        cached = _load_cached_report(source_sha)
+        report = cached or parse_replay(temp_path)
+        output = write_report_data(report, REPORT_ROOT, match_id=match_id)
+        if cached is None:
+            write_report_data(report, CACHE_ROOT, match_id=_cache_key(source_sha))
+        return JSONResponse(status_code=201, content={"match_id": match_id, "report_path": str(output), "cache_hit": cached is not None})
+    except ReplayParseError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    finally:
+        if temp_path:
+            temp_path.unlink(missing_ok=True)
+        await file.close()
+
+
+def _load_report(match_id: str) -> dict[str, object]:
+    if Path(match_id).name != match_id:
+        raise HTTPException(status_code=400, detail="invalid match id")
+    path = REPORT_ROOT / match_id / "summary.json"
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="report not found")
+    try:
+        return _read_json(path)
+    except ValueError as exc:
+        raise HTTPException(status_code=500, detail="report is invalid") from exc
+
+
+def _read_json(path: Path) -> dict[str, object]:
+    import json
+
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("report root is not an object")
+    return payload
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _load_cached_report(source_sha: str) -> dict[str, object] | None:
+    path = CACHE_ROOT / _cache_key(source_sha) / "summary.json"
+    if not path.is_file():
+        return None
+    try:
+        cached = _read_json(path)
+    except (OSError, ValueError):
+        return None
+    if cached.get("source", {}).get("sha256") != source_sha:
+        return None
+    return cached
+
+
+def _cache_key(source_sha: str) -> str:
+    return f"schema-{SCHEMA_VERSION}-parser-{PARSER_VERSION}-{source_sha}"
