@@ -4,22 +4,37 @@ import os
 import re
 import tempfile
 import hashlib
+import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, Header, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
 
 from .rofl import MAX_REPLAY_BYTES, PARSER_VERSION, SCHEMA_VERSION, ReplayParseError, _upgrade_report, parse_replay, write_report_data
+from .player_store import PlayerDatasetStore
+from .riot_api import RiotApiClient, RiotApiError
 
 
 REPORT_ROOT = Path(os.getenv("ROFL_REPORT_ROOT", "/var/lib/rofl-analysis/reports"))
 UPLOAD_ROOT = Path(os.getenv("ROFL_UPLOAD_ROOT", "/var/lib/rofl-analysis/uploads"))
 CACHE_ROOT = Path(os.getenv("ROFL_CACHE_ROOT", "/var/lib/rofl-analysis/cache"))
-app = FastAPI(title="LoL ROFL Analysis API", version="0.3.2")
+RIOT_DATA_ROOT = Path(os.getenv("RIOT_DATA_ROOT", "/var/lib/rofl-analysis/riot"))
+PLAYER_STORE = PlayerDatasetStore(RIOT_DATA_ROOT)
+app = FastAPI(title="LoL ROFL Analysis API", version="0.4.0")
 allowed_origins = [item.strip() for item in os.getenv("ROFL_ALLOWED_ORIGINS", "http://localhost:5173").split(",") if item.strip()]
 app.add_middleware(CORSMiddleware, allow_origins=allowed_origins, allow_methods=["GET", "POST"], allow_headers=["*"])
+
+
+class RiotCollectRequest(BaseModel):
+    game_name: str = Field(min_length=1, max_length=64)
+    tag_line: str = Field(min_length=1, max_length=16)
+    platform: str = Field(default="vn2", min_length=2, max_length=5)
+    regional: str = Field(default="sea", min_length=3, max_length=9)
+    start: int = Field(default=0, ge=0)
+    count: int = Field(default=20, ge=1, le=100)
 
 
 @app.get("/health/live")
@@ -31,6 +46,7 @@ def live() -> dict[str, str]:
 def ready() -> dict[str, str]:
     REPORT_ROOT.mkdir(parents=True, exist_ok=True)
     CACHE_ROOT.mkdir(parents=True, exist_ok=True)
+    RIOT_DATA_ROOT.mkdir(parents=True, exist_ok=True)
     return {"status": "ok"}
 
 
@@ -84,6 +100,55 @@ def get_analysis(match_id: str) -> dict[str, object]:
     }
 
 
+@app.post("/api/v1/riot/collect")
+def collect_riot(
+    request: RiotCollectRequest,
+    x_collector_token: str | None = Header(default=None),
+) -> dict[str, object]:
+    """Collect Riot profile/history data without exposing the Riot API key."""
+    configured_token = os.getenv("RIOT_COLLECT_TOKEN", "")
+    if not configured_token:
+        raise HTTPException(status_code=503, detail="Riot collector is not configured")
+    if not x_collector_token or not secrets.compare_digest(x_collector_token, configured_token):
+        raise HTTPException(status_code=401, detail="collector authentication required")
+    try:
+        client = RiotApiClient.from_env(platform=request.platform, regional=request.regional)
+        dataset = client.collect_player_history(
+            request.game_name,
+            request.tag_line,
+            start=request.start,
+            count=request.count,
+        )
+        return PLAYER_STORE.save(dataset)
+    except RiotApiError as exc:
+        status = exc.status_code if exc.status_code in {404, 429} else 502
+        raise HTTPException(status_code=status, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/players/{player_id}")
+def get_player_profile(player_id: str) -> dict[str, object]:
+    stored = _load_player(player_id)
+    return {"player_id": stored["player_id"], "player": stored["dataset"].get("player"), "source": stored["dataset"].get("source"), "ranked": stored["dataset"].get("ranked")}
+
+
+@app.get("/api/v1/players/{player_id}/analysis")
+def get_player_analysis(player_id: str) -> dict[str, object]:
+    stored = _load_player(player_id)
+    return {"player_id": stored["player_id"], "analysis": stored["analysis"]}
+
+
+@app.get("/api/v1/players/{player_id}/charts")
+def get_player_charts(player_id: str) -> dict[str, object]:
+    stored = _load_player(player_id)
+    return {"player_id": stored["player_id"], "charts": stored["analysis"].get("charts", {})}
+
+
+@app.get("/api/v1/players/{player_id}/matches")
+def get_player_matches(player_id: str) -> dict[str, object]:
+    stored = _load_player(player_id)
+    return {"player_id": stored["player_id"], "matches": stored["dataset"].get("matches", [])}
+
+
 @app.post("/api/v1/reports", status_code=201)
 async def analyze_upload(file: UploadFile = File(...)) -> JSONResponse:
     if not file.filename or not file.filename.lower().endswith(".rofl"):
@@ -129,6 +194,16 @@ def _load_report(match_id: str) -> dict[str, object]:
         return _upgrade_report(_read_json(path))
     except ValueError as exc:
         raise HTTPException(status_code=500, detail="report is invalid") from exc
+
+
+def _load_player(player_id: str) -> dict[str, object]:
+    try:
+        stored = PLAYER_STORE.load(player_id)
+    except (OSError, ValueError) as exc:
+        raise HTTPException(status_code=500, detail="player dataset is invalid") from exc
+    if stored is None:
+        raise HTTPException(status_code=404, detail="player dataset not found")
+    return stored
 
 
 def _read_json(path: Path) -> dict[str, object]:
