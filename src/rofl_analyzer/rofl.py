@@ -7,13 +7,19 @@ import struct
 from pathlib import Path
 from typing import Any
 
-from .transport import SIGNATURE_SIZE, TransportParseError, summarize_transport, write_transport_artifacts
+from .transport import (
+    SIGNATURE_SIZE,
+    TransportParseError,
+    legacy_profile_reference,
+    summarize_transport,
+    write_transport_artifacts,
+)
 
 
 ROFL_MAGIC = b"RIOT"
 FORMAT_VERSION = 2
 SCHEMA_VERSION = 2
-PARSER_VERSION = "0.3.1"
+PARSER_VERSION = "0.3.2"
 MAX_REPLAY_BYTES = 128 * 1024 * 1024
 
 
@@ -74,12 +80,18 @@ def parse_replay(path: str | Path) -> dict[str, Any]:
     metadata_start = len(raw) - 4 - metadata_length
     signature_start = metadata_start - SIGNATURE_SIZE
     try:
-        transport = summarize_transport(raw, chunks_start=header["header_size"], chunks_end=signature_start)
+        transport = summarize_transport(
+            raw,
+            chunks_start=header["header_size"],
+            chunks_end=signature_start,
+            client_version=header["client_version"],
+        )
     except TransportParseError as exc:
         raise ReplayParseError(f"invalid ROFL transport: {exc}") from exc
     participants = [_participant_summary(item, index) for index, item in enumerate(metadata["stats"])]
     duration = metadata["gameLength"] / 1000 if metadata.get("gameLength") is not None else None
     teams = _team_summaries(participants, duration)
+    legacy = transport["legacy_profile_reference"]
     capabilities = {
         "container": {"status": "verified", "reason": "ROFL v2 header and metadata parsed"},
         "transport_layer": {"status": "verified", "reason": "ROFL chunks and network block framing parsed"},
@@ -90,13 +102,18 @@ def parse_replay(path: str | Path) -> dict[str, Any]:
             "reason": "own/enemy neutral CS is available from verified participant metadata; camp routes are not decoded",
         },
         "event_timeline": {
-            "status": "unknown",
-            "reason": "patch-specific event decoder is not bundled for this replay",
+            "status": "candidate",
+            "reason": legacy["reason"],
+            "warning": legacy["warning"],
+            "profile_client_version": legacy["profile_client_version"],
         },
         "movement_semantics": {
-            "status": "unknown",
-            "reason": f"no verified semantic profile for {header['client_version']}",
+            "status": "candidate",
+            "reason": legacy["reason"],
+            "warning": legacy["warning"],
+            "profile_client_version": legacy["profile_client_version"],
         },
+        "legacy_profile": legacy,
     }
     match_id = replay_path.stem
     report = {
@@ -119,8 +136,9 @@ def parse_replay(path: str | Path) -> dict[str, Any]:
         "players": participants,
         "timeline": {
             "events": [],
-            "status": "transport_only",
+            "status": "candidate",
             "reason": capabilities["event_timeline"]["reason"],
+            "warning": capabilities["event_timeline"]["warning"],
             "transport_observations": transport["opcode_observations"],
         },
         "objectives": {
@@ -130,11 +148,12 @@ def parse_replay(path: str | Path) -> dict[str, Any]:
         },
         "movement": {
             "segments": [],
-            "status": "transport_only",
+            "status": "candidate",
             "reason": capabilities["movement_semantics"]["reason"],
+            "warning": capabilities["movement_semantics"]["warning"],
             "transport_observations": [item for item in transport["opcode_observations"] if item["opcode"] == 0x022C],
             "transport_artifacts": transport["artifacts"],
-            "legacy_profile_reference": transport["legacy_profile_reference"],
+            "legacy_profile_reference": legacy,
         },
         "event_chains": {
             "items": [],
@@ -148,6 +167,7 @@ def parse_replay(path: str | Path) -> dict[str, Any]:
             "unknowns": [
                 "Exact gank, invade, route, death and objective timestamps are not emitted without a verified event profile.",
                 "No coordinate or path claim may be made from this report.",
+                f"Legacy profile {legacy['profile_client_version']} is candidate-only and may be wrong for client {header['client_version']}.",
             ],
             "method": "metadata_first",
         },
@@ -451,6 +471,33 @@ def _upgrade_report(report: dict[str, Any]) -> dict[str, Any]:
             "status": "derived",
             "reason": "own/enemy neutral CS is available from verified participant metadata; camp routes are not decoded",
         })
+
+        game = report.get("game")
+        client_version = game.get("patch") if isinstance(game, dict) else None
+        legacy = legacy_profile_reference(client_version if isinstance(client_version, str) else None)
+        transport = report.get("transport")
+        if isinstance(transport, dict):
+            transport["legacy_profile_reference"] = legacy
+        capabilities.setdefault("legacy_profile", legacy)
+        for name in ("event_timeline", "movement_semantics"):
+            current = capabilities.get(name)
+            if not isinstance(current, dict) or current.get("status") in {None, "unknown", "transport_only"}:
+                capabilities[name] = {
+                    "status": "candidate",
+                    "reason": legacy["reason"],
+                    "warning": legacy["warning"],
+                    "profile_client_version": legacy["profile_client_version"],
+                }
+
+        for artifact_name, capability_name in (("timeline", "event_timeline"), ("movement", "movement_semantics")):
+            artifact = report.get(artifact_name)
+            capability = capabilities.get(capability_name)
+            if isinstance(artifact, dict) and isinstance(capability, dict) and artifact.get("status") in {None, "unknown", "transport_only"}:
+                artifact["status"] = "candidate"
+                artifact["reason"] = capability["reason"]
+                artifact["warning"] = capability["warning"]
+                if artifact_name == "movement":
+                    artifact.setdefault("legacy_profile_reference", legacy)
 
     teams = report.get("teams")
     game = report.get("game")

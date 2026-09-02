@@ -19,7 +19,7 @@
     },
     "parser": {"type": "object", "required": ["name", "version"]},
     "game": {"type": "object", "required": ["patch", "duration_seconds", "format_version"]},
-    "capabilities": {"type": "object", "additionalProperties": {"type": "object", "required": ["status", "reason"]}},
+    "capabilities": {"type": "object", "additionalProperties": {"type": "object", "required": ["status", "reason"], "properties": {"status": {"type": "string"}, "reason": {"type": "string"}, "warning": {"type": "string"}}}},
     "transport": {"type": "object", "required": ["status", "block_count", "distinct_opcodes", "top_opcodes", "semantic_status"]},
     "teams": {"type": "array", "items": {"type": "object"}},
     "players": {"type": "array", "items": {"$ref": "#/$defs/player"}},

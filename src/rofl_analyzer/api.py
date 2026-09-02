@@ -17,7 +17,7 @@ from .rofl import MAX_REPLAY_BYTES, PARSER_VERSION, SCHEMA_VERSION, ReplayParseE
 REPORT_ROOT = Path(os.getenv("ROFL_REPORT_ROOT", "/var/lib/rofl-analysis/reports"))
 UPLOAD_ROOT = Path(os.getenv("ROFL_UPLOAD_ROOT", "/var/lib/rofl-analysis/uploads"))
 CACHE_ROOT = Path(os.getenv("ROFL_CACHE_ROOT", "/var/lib/rofl-analysis/cache"))
-app = FastAPI(title="LoL ROFL Analysis API", version="0.3.1")
+app = FastAPI(title="LoL ROFL Analysis API", version="0.3.2")
 allowed_origins = [item.strip() for item in os.getenv("ROFL_ALLOWED_ORIGINS", "http://localhost:5173").split(",") if item.strip()]
 app.add_middleware(CORSMiddleware, allow_origins=allowed_origins, allow_methods=["GET", "POST"], allow_headers=["*"])
 

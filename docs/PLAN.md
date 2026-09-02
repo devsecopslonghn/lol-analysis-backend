@@ -22,8 +22,9 @@
 
 ## Phase 3 — movement and causal coaching
 
-1. Decode player entities only with a verified profile; legacy profiles are
-   comparison fixtures, never a silent fallback for a different patch.
+1. Decode player entities only with a verified profile; legacy profiles may be
+   exposed as explicit warning-only candidates, never a silent fallback for a
+   different patch.
 2. Reconstruct movement segments and semantic zones.
 3. Detect candidate clears, invades, ganks and counter-ganks.
 4. Build event chains with evidence references and confidence.

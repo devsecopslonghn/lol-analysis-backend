@@ -11,12 +11,25 @@ from typing import Any, Iterator
 CHUNK_HEADER = struct.Struct("<IBIII")
 SIGNATURE_SIZE = 256
 
+LEGACY_PROFILE = {
+    "project": "RoflLens",
+    "profile_client_version": "16.14.794.5912",
+    "candidate_opcodes": ["0x022c", "0x0226", "0x036f"],
+    "profile_source": "public legacy profile reference",
+}
+
 
 class TransportParseError(ValueError):
     """Raised when the ROFL chunk or network-block layer is invalid."""
 
 
-def summarize_transport(raw: bytes, *, chunks_start: int, chunks_end: int) -> dict[str, Any]:
+def summarize_transport(
+    raw: bytes,
+    *,
+    chunks_start: int,
+    chunks_end: int,
+    client_version: str | None = None,
+) -> dict[str, Any]:
     """Parse verified ROFL transport framing without claiming packet semantics."""
     if chunks_start < 0 or chunks_end < chunks_start or chunks_end > len(raw):
         raise TransportParseError("invalid chunk region")
@@ -84,16 +97,39 @@ def summarize_transport(raw: bytes, *, chunks_start: int, chunks_end: int) -> di
             opcode_counts, payload_bytes, first_opcode_timestamp, last_opcode_timestamp, opcode_streams
         ),
         "artifacts": _artifact_specs(opcode_counts),
-        "legacy_profile_reference": {
-            "status": "legacy_candidate_only",
-            "project": "RoflLens",
-            "profile_client_version": "16.14.794.5912",
-            "candidate_opcode": "0x022c",
-            "applies_to_client_version": False,
-            "reason": "The bundled legacy profile is not an exact match for this 16.17 replay; it cannot produce verified coordinates or ganks.",
-        },
+        "legacy_profile_reference": legacy_profile_reference(client_version),
         "semantic_status": "transport_only",
         "semantic_reason": "packet payload semantics require an exact patch profile and client decoder",
+    }
+
+
+def legacy_profile_reference(client_version: str | None) -> dict[str, Any]:
+    """Describe the old decoder as an explicit warning-only fallback.
+
+    The profile is intentionally metadata-only in this service. Applying its
+    RVAs to a different client would make coordinates and events look valid
+    while being unsafe. A future adapter may promote this to verified only
+    after matching client/profile hashes are available.
+    """
+    target = client_version or "unknown"
+    exact_version = target == LEGACY_PROFILE["profile_client_version"]
+    return {
+        **LEGACY_PROFILE,
+        "status": "candidate",
+        "mode": "warning_only",
+        "target_client_version": target,
+        "applies_to_client_version": exact_version,
+        "decoder_assets_available": False,
+        "warning": (
+            "Legacy profile is available as a candidate reference only. "
+            "It is not an exact runtime adapter for this replay and must not "
+            "be used to claim coordinates, routes, ganks or causal events."
+        ),
+        "reason": (
+            f"Legacy profile {LEGACY_PROFILE['profile_client_version']} is being "
+            f"kept for comparison against client {target}; exact client binary "
+            "and profile sections are not bundled."
+        ),
     }
 
 

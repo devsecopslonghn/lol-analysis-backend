@@ -31,8 +31,9 @@ The contract is documented in `docs/report.schema.json`.
 For `VN2-1568084329.rofl` (patch `16.17.810.4348`), transport parsing verifies
 630 chunks, 1,790,597 blocks and 264 opcodes. The report records `0x022c` as a
 candidate movement signal, but does not turn it into coordinates without a
-matching client decoder. The report records RoflLens' 16.14 profile as a legacy
-reference only; it is explicitly marked as not applicable to this 16.17 client.
+matching client decoder. The report keeps RoflLens' 16.14 profile as a
+`candidate`/warning-only fallback; it is never presented as verified for this
+16.17 client.
 
 ## API
 
@@ -49,4 +50,5 @@ reference only; it is explicitly marked as not applicable to this 16.17 client.
 
 This MVP does not claim exact ganks, invades, coordinates, death timestamps or
 objective timestamps unless a verified patch-specific adapter is added. It
-reports these capabilities as unavailable instead of applying a stale profile.
+reports the stale profile as a warning-only candidate and keeps the actual
+semantic artifacts empty until exact client assets are available.

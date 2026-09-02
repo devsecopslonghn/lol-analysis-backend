@@ -45,13 +45,16 @@ Every claim must be classified as one of:
 - `verified`: directly present in replay or deterministic parser output;
 - `derived`: deterministic calculation from verified fields;
 - `inferred`: coaching interpretation supported by evidence references;
-- `unknown`: unavailable or unsafe to infer.
+- `unknown`: unavailable or unsafe to infer;
+- `candidate`: an older profile/reference may be used for comparison, but its
+  output is warning-only and is never a verified game event.
 
 Movement, camp ownership, exact gank location and exact death/objective
-timestamps are `unknown` unless a matching semantic profile is verified.
-Legacy profiles may be recorded as references or hypotheses, but must not be
-used to emit coordinates, player routes or gank events for another client
-version. Transport candidate records contain framing evidence only.
+timestamps are `unknown` unless a matching semantic profile is verified. When
+an older profile exists, the report may expose it as `candidate` with an
+explicit warning. This is comparison-only evidence: it must not be used to
+emit coordinates, player routes or gank events for another client version.
+Transport candidate records contain framing evidence only.
 Aggregate impact dimensions are `derived`; they are signals for the AI or
 dashboard, not an automatic quality score.
 
@@ -66,7 +69,7 @@ dashboard, not an automatic quality score.
 | FR-05 | Reject oversized, malformed and non-ROFL uploads with stable errors. |
 | FR-06 | Cache/report storage must be keyed by replay SHA256 and parser/profile version. |
 | FR-07 | The API must return liveness/readiness endpoints suitable for Kubernetes. |
-| FR-08 | A future movement adapter must never run when patch/profile/client hashes do not match. |
+| FR-08 | A future verified movement adapter must never run when patch/profile/client hashes do not match; an older profile may remain visible as warning-only candidate evidence. |
 | FR-09 | Event chains must represent `precondition → action → outcome → conversion → impact`. |
 | FR-10 | The frontend must consume backend JSON and must not recreate analysis rules. |
 | FR-11 | Timestamped movement/opcode candidate artifacts must remain explicitly transport-only until an exact decoder is verified. |

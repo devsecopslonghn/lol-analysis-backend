@@ -63,7 +63,8 @@ def test_parse_replay_aggregates_players(tmp_path):
     assert report["players"][0]["champion_key"] == "Rengar"
     assert report["players"][0]["champion_id"] == 107
     assert report["players"][0]["derived"]["kill_participation"] == 1.0
-    assert report["movement"]["status"] == "transport_only"
+    assert report["movement"]["status"] == "candidate"
+    assert report["movement"]["warning"]
     assert report["transport"]["block_count"] == 1
     assert report["transport"]["opcode_observations"][0]["hex"] == "0x022c"
 
@@ -87,7 +88,8 @@ def test_report_is_explicit_about_unverified_semantics(tmp_path):
     assert report["schema_version"] == 2
     assert report["analysis"]["method"] == "metadata_first"
     assert report["event_chains"]["shape"] == ["precondition", "action", "outcome", "conversion", "impact"]
-    assert report["capabilities"]["movement_semantics"]["status"] == "unknown"
+    assert report["capabilities"]["movement_semantics"]["status"] == "candidate"
+    assert report["capabilities"]["legacy_profile"]["profile_client_version"] == "16.14.794.5912"
     assert report["capabilities"]["jungle_economy"]["status"] == "derived"
     assert report["analysis"]["facts"][0]["title"] == "Match duration"
 
@@ -102,6 +104,8 @@ def test_upgrade_report_backfills_fields_for_persisted_reports(tmp_path):
     report["players"][0].pop("champion_id")
     report["players"][0].pop("champion_key")
     report["capabilities"].pop("jungle_economy")
+    report["capabilities"]["movement_semantics"]["status"] = "unknown"
+    report["movement"]["status"] = "transport_only"
 
     upgraded = _upgrade_report(report)
 
@@ -109,3 +113,5 @@ def test_upgrade_report_backfills_fields_for_persisted_reports(tmp_path):
     assert upgraded["players"][0]["champion_key"] == "Rengar"
     assert upgraded["capabilities"]["jungle_economy"]["status"] == "derived"
     assert upgraded["analysis"]["facts"][0]["title"] == "Match duration"
+    assert upgraded["capabilities"]["movement_semantics"]["status"] == "candidate"
+    assert upgraded["movement"]["status"] == "candidate"
