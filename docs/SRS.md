@@ -24,6 +24,8 @@ coordinates, events or patch-specific semantics.
 - Mark unsupported event/movement semantics explicitly.
 - Emit generic per-player impact dimensions and an event-chain contract for
   `precondition → action → outcome → conversion → impact`.
+- Parse and retain transport-layer chunk/block timestamps and opcode evidence
+  without mislabeling patch-bound packet semantics.
 - Cache generated reports by replay SHA256 and parser schema version.
 
 ### Subsequent releases

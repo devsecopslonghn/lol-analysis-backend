@@ -8,6 +8,7 @@
 4. CLI and FastAPI report endpoints.
 5. Tests with synthetic metadata and the supplied replay as a smoke check.
 6. SHA256 cache, generic player impact artifact and event-chain extension point.
+7. Transport chunk/block parser with per-opcode counts and observed time windows.
 
 ## Phase 2 — verified event adapters (requires a verified patch profile)
 

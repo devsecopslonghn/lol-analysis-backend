@@ -42,8 +42,10 @@ def _replay(tmp_path):
         },
     ]
     payload = json.dumps({"gameLength": 60000, "statsJson": json.dumps(stats)}).encode()
-    raw = bytearray(b"RIOT\x02\x00\x01\x00\x00\x00\x00\x00\x00\x00\x0d16.17.810.4348")
-    raw.extend(b"\x00" * 17)
+    raw = bytearray(b"RIOT\x02\x00\x01\x00\x00\x00\x00\x00\x00\x00\x0e16.17.810.4348")
+    block = bytes([0x90, 0, 0, 0x2C, 0x02, 1, 0, 0, 0])
+    raw.extend(struct.pack("<IBIII", 1, 0, 0x01000000, len(block), 0))
+    raw.extend(block)
     raw.extend(b"\x00" * 256)
     raw.extend(payload)
     raw.extend(struct.pack("<I", len(payload)))
@@ -59,7 +61,9 @@ def test_parse_replay_aggregates_players(tmp_path):
     assert report["teams"][1]["deaths"] == 10
     assert report["players"][0]["champion"] == "Rengar"
     assert report["players"][0]["derived"]["kill_participation"] == 1.0
-    assert report["movement"]["status"] == "unavailable"
+    assert report["movement"]["status"] == "transport_only"
+    assert report["transport"]["block_count"] == 1
+    assert report["transport"]["opcode_observations"][0]["hex"] == "0x022c"
 
 
 def test_write_report_uses_generic_player_artifact_names(tmp_path):
@@ -69,6 +73,7 @@ def test_write_report_uses_generic_player_artifact_names(tmp_path):
     assert (target / "analysis_context.json").is_file()
     assert (target / "player_impacts.json").is_file()
     assert (target / "event_chains.json").is_file()
+    assert (target / "transport.json").is_file()
     assert (target / "events.jsonl").is_file()
     assert not list(target.glob("*rengar*"))
 

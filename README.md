@@ -1,9 +1,9 @@
 # LoL ROFL Analysis Backend
 
 Read-only ROFL extraction and report API for a future LoL coaching dashboard.
-The current release safely parses ROFL v2 metadata and creates generic player
-reports. Champion, role and player information are fields inside `players.json`;
-files are not named after champions.
+The current release safely parses ROFL v2 metadata plus chunk/network transport
+and creates generic player reports. Champion, role and player information are
+fields inside `players.json`; files are not named after champions.
 
 ## Local usage
 
@@ -16,10 +16,16 @@ uvicorn rofl_analyzer.api:app --host 0.0.0.0 --port 8080
 
 The output directory contains generic `players.json`, `player_impacts.json`,
 `analysis_context.json`, `event_chains.json`, JSONL extension points and
-capability-aware placeholder files for future event and movement adapters.
+`transport.json` with chunk/block/opcode evidence, plus capability-aware
+placeholder files for future event and movement adapters.
 The API cache is keyed by replay SHA256, so re-uploading the same replay does
 not require a second semantic parse.
 The contract is documented in `docs/report.schema.json`.
+
+For `VN2-1568084329.rofl` (patch `16.17.810.4348`), transport parsing verifies
+630 chunks, 1,790,597 blocks and 264 opcodes. The report records `0x022c` as a
+candidate movement signal, but does not turn it into coordinates without a
+matching client decoder.
 
 ## API
 
