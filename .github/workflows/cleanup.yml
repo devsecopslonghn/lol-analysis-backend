@@ -1,0 +1,25 @@
+name: Container cleanup
+
+on:
+  schedule:
+    - cron: "17 3 * * 0"
+  workflow_dispatch:
+    inputs:
+      execute:
+        description: Delete old GHCR versions (manual runs are dry-run by default)
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  cleanup:
+    uses: devsecopslonghn/.github/.github/workflows/container-cleanup.yml@master
+    with:
+      package_name: lol-analysis-backend
+      chart_values_url: https://raw.githubusercontent.com/devsecopslonghn/lol-analysis-helm-chart/master/values.yaml
+      execute: ${{ github.event_name == 'schedule' || inputs.execute }}
+    secrets: inherit

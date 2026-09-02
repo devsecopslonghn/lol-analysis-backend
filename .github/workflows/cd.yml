@@ -1,0 +1,65 @@
+name: CD
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [master, main]
+
+permissions:
+  contents: read
+
+jobs:
+  update-gitops:
+    if: >-
+      ${{
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.head_repository.full_name == github.repository
+      }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Helm chart
+        uses: actions/checkout@v4
+        with:
+          repository: devsecopslonghn/lol-analysis-helm-chart
+          ref: master
+          token: ${{ secrets.GITOPS_TOKEN }}
+          path: chart
+
+      - name: Update backend image reference
+        working-directory: chart
+        env:
+          IMAGE_REPOSITORY: ghcr.io/devsecopslonghn/lol-analysis-backend
+          IMAGE_TAG: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import re
+          from pathlib import Path
+
+          path = Path("values.yaml")
+          text = path.read_text()
+          match = re.search(r"(?ms)^  backend:\n.*?(?=^  frontend:\n|^[^ ]|\Z)", text)
+          if not match:
+              raise SystemExit("backend image values block was not found")
+          block = match.group(0)
+          block, repo_count = re.subn(r"(?m)^    repository:.*$", f"    repository: {os.environ['IMAGE_REPOSITORY']}", block, count=1)
+          block, tag_count = re.subn(r"(?m)^    tag:.*$", f"    tag: \"{os.environ['IMAGE_TAG']}\"", block, count=1)
+          if repo_count != 1 or tag_count != 1:
+              raise SystemExit("backend image reference was not updated exactly once")
+          path.write_text(text[:match.start()] + block + text[match.end():])
+          PY
+
+      - name: Validate Helm chart
+        working-directory: chart
+        run: helm lint .
+
+      - name: Commit GitOps reference
+        working-directory: chart
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add values.yaml
+          git diff --cached --quiet || git commit -m "chore(gitops): deploy lol-analysis backend ${{ github.event.workflow_run.head_sha }} [skip ci]"
+          git pull --rebase origin master
+          git push origin master
