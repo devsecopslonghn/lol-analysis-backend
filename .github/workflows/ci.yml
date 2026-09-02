@@ -1,0 +1,22 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  verify:
+    uses: devsecopslonghn/.github/.github/workflows/python-container.yml@master
+    with:
+      python_version: "3.11"
+      install_command: python -m pip install -e '.[dev]'
+      test_command: python -m pytest -q
+      image_name: ghcr.io/devsecopslonghn/lol-analysis-backend
+      publish_image: true
+      registry: ghcr.io
+    secrets: inherit
